@@ -126,6 +126,6 @@ class ABCPStrategy:
             items.append(item)
             items = sorted(items, key=lambda e: e['price'])
         title = await self._current_page.title()
-        fullpath = os.path.join(self._folder, title + '.json')
+        fullpath = os.path.join(self._folder,f'{self._domain}.{title}.json')
         with open(fullpath, 'w', encoding='utf-8') as f:
             json.dump(items, f, ensure_ascii=False)

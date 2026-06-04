@@ -1,8 +1,9 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 import asyncio
+import datetime
 import os
-from ftplib import FTP
+from ftplib import FTP, error_perm
 
 import ftp_stuff
 from AEXCStrategy import ABCPStrategy, AEXCStrategy
@@ -45,14 +46,21 @@ async def main():
     ftp.login(os.environ.get("FTP_LOGIN"),
               os.environ.get("FTP_PWD"))
 
-    articules = ftp_stuff.get_articules(ftp)
-    print(articules)
-    manager = BrowserManager()
-    p = Parser(AEXCStrategy(manager, articules,ftp))
-    await p.parse()
-    p2 = Parser(STPartsStrategy(manager, articules,ftp))
-    await p2.parse()
-    print('all done')
+    while True:
+        hour = datetime.datetime.now().hour
+        if 10 < hour < 20:
+            try:
+                articules = ftp_stuff.get_articules(ftp)
+            except error_perm:
+                await asyncio.sleep(60 * 30)
+                continue
+            print(f'start parsing at {datetime.datetime.now()}')
+            manager = BrowserManager()
+            p = Parser(AEXCStrategy(manager, articules, ftp))
+            await p.parse()
+            p2 = Parser(STPartsStrategy(manager, articules, ftp))
+            await p2.parse()
+            print(f'done all sites at {datetime.datetime.now()}')
     ftp.quit()
 
 

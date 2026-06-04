@@ -25,14 +25,6 @@ def get_articules(ftp:FTP):
     ftp.retrlines('RETR From_1C.csv', lambda e: articules.append(createrow(e)))
     return articules[1:]
 
-def send_jsons(folder:str):
-    ftp = FTP()
-    ftp.connect(os.environ.get('FTP_IP'), int(os.environ.get('FTP_PORT')))
-    ftp.login(os.environ.get("FTP_LOGIN"),
-              os.environ.get("FTP_PWD"))
-
-
-    ftp.quit()
 
 def show_files():
     ftp = FTP()

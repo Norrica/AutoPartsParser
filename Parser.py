@@ -1,6 +1,9 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 import asyncio
+import os
+from ftplib import FTP
+
 import ftp_stuff
 from AEXCStrategy import ABCPStrategy, AEXCStrategy
 from STPartsStrategy import STPartsStrategy
@@ -36,12 +39,21 @@ class Parser:
 
 
 async def main():
-    articules = ftp_stuff.get_articules()
+    ftp = FTP()
+    host = os.environ.get('FTP_IP')
+    ftp.connect(host, int(os.environ.get('FTP_PORT')))
+    ftp.login(os.environ.get("FTP_LOGIN"),
+              os.environ.get("FTP_PWD"))
+
+    articules = ftp_stuff.get_articules(ftp)
+    print(articules)
     manager = BrowserManager()
-    p = Parser(AEXCStrategy(manager, articules))
+    p = Parser(AEXCStrategy(manager, articules,ftp))
     await p.parse()
-    p2 = Parser(STPartsStrategy(manager, articules))
+    p2 = Parser(STPartsStrategy(manager, articules,ftp))
     await p2.parse()
+    print('all done')
+    ftp.quit()
 
 
 if __name__ == '__main__':

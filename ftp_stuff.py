@@ -20,16 +20,19 @@ def createrow(string: str):
     return string
 
 
-def get_articules():
+def get_articules(ftp:FTP):
+    articules = []
+    ftp.retrlines('RETR From_1C.csv', lambda e: articules.append(createrow(e)))
+    return articules[1:]
+
+def send_jsons(folder:str):
     ftp = FTP()
     ftp.connect(os.environ.get('FTP_IP'), int(os.environ.get('FTP_PORT')))
     ftp.login(os.environ.get("FTP_LOGIN"),
               os.environ.get("FTP_PWD"))
-    articules = []
-    ftp.retrlines('RETR test.txt', lambda e: articules.append(createrow(e)))
-    ftp.quit()
-    return articules
 
+
+    ftp.quit()
 
 def show_files():
     ftp = FTP()
@@ -37,11 +40,13 @@ def show_files():
     ftp.connect(host, int(os.environ.get('FTP_PORT')))
     ftp.login(os.environ.get("FTP_LOGIN"),
               os.environ.get("FTP_PWD"))
-    ftp.pwd()
     ftp.dir()
+    articules = []
+    ftp.retrlines('RETR From_1C.csv', articules.append)
+    for a in articules[1:]:
+        print(a)
     ftp.quit()
 
 
 if __name__ == '__main__':
-    load_dotenv()
     show_files()

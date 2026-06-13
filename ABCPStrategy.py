@@ -9,21 +9,22 @@ import random
 import time
 from ftplib import FTP
 
-import requests
+import pyppeteer.errors
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from pyppeteer.element_handle import ElementHandle
 from pyppeteer.page import Page
 from pyppeteer_stealth import stealth
 from solvecaptcha import Solvecaptcha
+from solvecaptcha.api import ApiException
 
 from browser_manager import BrowserManager
-import requests_cache
 
 load_dotenv()
-requests_cache.install_cache('captcha_cache')
 
 solver = Solvecaptcha(os.environ.get('CAPTCHA_API_TOKEN'))
+
+USR_AGNT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
 
 
 async def type_random_delay(text_field: ElementHandle, text, min, max):
@@ -64,18 +65,20 @@ class ABCPStrategy:
         browser_parser = await self._browser_manager.start_parsing()
         self._current_page = await browser_parser.newPage()
         await stealth(self._current_page)
-
+        await self._current_page.setUserAgent(USR_AGNT)
         for article in self._articles:
             split = article.split(';')
             part_n, brand = split[0], ' '.join(split[1:])
+            print(f'opening {self._domain}/search/{brand}/{part_n}')
             await self._current_page.goto(
                 f'{self._domain}/search/{brand}/{part_n}',
-                {'waitUntil': 'networkidle0'}
+                {'waitUntil': 'domcontentloaded', 'timeout': 0}
             )
             if await self.check_for_captcha(self._current_page):
                 print("captcha", end=' ')
                 await self.solve_captcha(self._current_page)
-            print('parsing ', f'{self._domain}/search/{brand}/{part_n}', end=' ')
+            print(f' opened {self._domain}/search/{brand}/{part_n}')
+            print(' parsing ', f'{self._domain}/search/{brand}/{part_n}', end=' ')
             offers = await self.parse(self._current_page)
 
             self.results.append({
@@ -88,27 +91,46 @@ class ABCPStrategy:
 
         await self.create_json()
         print(f'json from {self._folder} created')
+        await browser_parser.close()
 
     async def parse(self, page: Page):
-        offers = []
+        offers = {
+            'genuine': [],
+            'analog': []
+        }
         soup = BeautifulSoup(await page.content(), "html.parser")
+        brand_tmp = ''
         for row in soup.select("tr[data-current-brand-number]"):
             delivery_min = int(row.get("data-deadline", 0))
             delivery_max = int(row.get("data-deadline-max", 0))
             style = row.get("style", "").lower()
-
             in_stock = (delivery_min == 0 or "#09f46d" in style)
+            is_genuine = int(row.get("data-is-request-article", 0))
+            brand = row.select_one(".resultBrand").get_text(strip=True)
+            if 'Показать ещё' in brand:
+                brand = brand_tmp
+            else:
+                brand_tmp = brand
+            if is_genuine:
+                offers['genuine'].append({
+                    "brand": brand,
+                    "description": row.select_one(".resultDescription").get_text(strip=True),
+                    "price": float(row.get("data-output-price", 0)),
+                    "delivery_min_hours": delivery_min,
+                    "delivery_max_hours": delivery_max,
+                    "in_stock": in_stock,
+                })
+            else:
+                offers['analog'].append({
+                    "brand": brand,
+                    "description": row.select_one(".resultDescription").get_text(strip=True),
+                    "price": float(row.get("data-output-price", 0)),
+                    "delivery_min_hours": delivery_min,
+                    "delivery_max_hours": delivery_max,
+                    "in_stock": in_stock,
+                })
 
-            offers.append({
-                "brand": row.select_one(".resultBrand").get_text(strip=True),
-                "description": row.select_one(".resultDescription").get_text(strip=True),
-                "price": float(row.get("data-output-price", 0)),
-                "delivery_min_hours": delivery_min,
-                "delivery_max_hours": delivery_max,
-                "in_stock": in_stock,
-            })
-
-        return sorted(offers, key=lambda e: e["price"])
+        return offers
 
     async def create_json(self):
         data = json.dumps(
@@ -123,7 +145,7 @@ class ABCPStrategy:
         )
 
     async def check_for_captcha(self, page):
-        return 'captchaImg' in await page.content()
+        return await page.querySelector("img.captchaImg")
 
     async def solve_captcha(self, curr_page: Page):
         # Другой способ, через canvas
@@ -138,22 +160,44 @@ class ABCPStrategy:
         #     }"""
         # )
 
-        element = await curr_page.querySelector("img.captchaImg")
-        png_bytes = await element.screenshot()
-        base64_image = base64.b64encode(png_bytes).decode("utf-8")
-        t0 = time.perf_counter()
-        result = solver.normal(
-            base64_image,
-            numeric=1,
-            minLen=4,
-            maxLen=4,
-        )['code']
-        t1 = time.perf_counter() - t0
-        print(result, f'{t1} seconds')
+        response = None
+        while not response:
+            element = await curr_page.querySelector("img.captchaImg")
+            png_bytes = await element.screenshot()
+            base64_image = base64.b64encode(png_bytes).decode("utf-8")
+            t0 = time.perf_counter()
+            try:
+                response = solver.normal(
+                    base64_image,
+                    numeric=1,
+                    minLen=4,
+                    maxLen=4
+                )
+                result = response['code']
+                t1 = time.perf_counter() - t0
+                print(result, f'{t1} seconds',end=' ')
+                await self.input_result(curr_page, result)
+                try:
+                    await curr_page.waitForSelector(
+                        'tr[data-current-brand-number]',
+                        {'timeout': 5000}
+                    )
+                    print("correct")
+                except pyppeteer.errors.TimeoutError:
+                    print("wrong")
+                    self.report_captcha(response)
+                    response = None
+                    await curr_page.reload({'waitUntil': 'networkidle0', 'timeout': 0})
+                    continue
+            except:
+                continue
+
+    async def input_result(self, curr_page, result):
         text_field = await curr_page.querySelector("#captchaSubmitInput")
         await type_random_delay(text_field, result, 0.3, 1)
         submit_btn = await curr_page.querySelector("#captchaSubmitBtn")
         await asyncio.sleep(random.uniform(0.6, 1.4))
         await submit_btn.click()
-        await curr_page.waitForNavigation()
 
+    def report_captcha(self, response):
+        solver.report(response['captchaId'], False)

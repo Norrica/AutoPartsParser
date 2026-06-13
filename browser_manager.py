@@ -21,7 +21,7 @@ class BrowserManager():
         self._cookies = None
 
     async def start_parsing(self) -> Browser:
-        self.browser_parser = await launch(executablePath=CHROME_PATH, headless=True)
+        self.browser_parser = await launch(executablePath=CHROME_PATH, headless=False)
         return self.browser_parser
 
     async def start_captcha(self) -> Browser:

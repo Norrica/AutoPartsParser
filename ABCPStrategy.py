@@ -72,7 +72,7 @@ class ABCPStrategy:
             print(f'opening {self._domain}/search/{brand}/{part_n}')
             await self._current_page.goto(
                 f'{self._domain}/search/{brand}/{part_n}',
-                {'waitUntil': 'domcontentloaded', 'timeout': 0}
+                {'waitUntil': 'networkidle0', 'timeout': 0}
             )
             if await self.check_for_captcha(self._current_page):
                 print("captcha", end=' ')
